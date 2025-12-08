@@ -7,10 +7,7 @@ require("./models/user");
 require("./models/reminder");
 const mongourl = "mongodb+srv://medifind:medifind@medifind.uezyqvq.mongodb.net/"
 mongoose
-    .connect(mongourl, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    })
+    .connect(mongourl)
     .then(() => {
         console.log("Connected to MongoDB");
     })
