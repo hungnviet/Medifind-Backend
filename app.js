@@ -1,38 +1,64 @@
+require('dotenv').config();
 const express = require('express');
-const multer = require('multer');
-const mongoose = require("mongoose");
-const app = express();
-app.use(express.json())
-require("./models/user");
-require("./models/reminder");
-const mongourl = "mongodb+srv://medifind:medifind@medifind.uezyqvq.mongodb.net/"
-mongoose
-    .connect(mongourl)
-    .then(() => {
-        console.log("Connected to MongoDB");
-    })
-    .catch((error) => {
-        console.log("Error connecting to MongoDB", error);
-    });
+const cors = require('cors');
+const connectDatabase = require('./config/database');
 
-const { getDrugWithName, getReply, handleScan, upload, signUp, signIn, createReminder, getReminder, updateReminder, updateHistorySearch, getHistorySearch, getHistoryMedicine, postHistoryMedicine } = require("./component");
-app
-    .route("/api/v1/drug/:name")
-    .get(getDrugWithName)
-app
-    .route("/api/v1/chatBot")
-    .get(getReply)
-app.post("/api/v1/nlp", upload.single('file'), handleScan);
-app.post("/api/v1/signup", signUp);
-app.post("/api/v1/signin", signIn);
-app.post("/api/v1/reminder/:id", createReminder);
-app.get("/api/v1/reminder/:id", getReminder);
-app.put("/api/v1/reminder/:reminderID/:userID", updateReminder);
-app.post("/api/v1/historySearch/:id", updateHistorySearch);
-app.get("/api/v1/historySearch/:id", getHistorySearch);
-app.get("/api/v1/historyMedicine/:id", getHistoryMedicine);
-app.post("/api/v1/historyMedicine/:id", postHistoryMedicine);
-const port = 3000;
+// Import models
+require('./models/user');
+require('./models/reminder');
+
+// Import routes
+const drugRoutes = require('./routes/drugRoutes');
+const chatbotRoutes = require('./routes/chatbotRoutes');
+const scanRoutes = require('./routes/scanRoutes');
+const authRoutes = require('./routes/authRoutes');
+const reminderRoutes = require('./routes/reminderRoutes');
+const historyRoutes = require('./routes/historyRoutes');
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Connect to database
+connectDatabase();
+
+// API Routes
+const API_VERSION = '/api/v1';
+app.use(API_VERSION, drugRoutes);
+app.use(API_VERSION, chatbotRoutes);
+app.use(API_VERSION, scanRoutes);
+app.use(API_VERSION, authRoutes);
+app.use(API_VERSION, reminderRoutes);
+app.use(API_VERSION, historyRoutes);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ status: 'success', message: 'Server is running' });
+});
+
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({
+        status: 'fail',
+        message: 'Route not found'
+    });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(err.status || 500).json({
+        status: 'error',
+        message: err.message || 'Internal server error'
+    });
+});
+
+// Start server
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`App running on port ${port}...`);
-})
+    console.log(`Server running on port ${port}...`);
+});
+
+module.exports = app;
