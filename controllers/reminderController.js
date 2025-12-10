@@ -8,7 +8,21 @@ const Reminder = mongoose.model('Reminder');
  */
 const createReminder = async (req, res) => {
     try {
-        const { name, amount, hour, minute, period, start_date, start_month, start_year } = req.body;
+        const {
+            name,
+            amount,
+            hour,
+            minute,
+            period,
+            start_date,
+            start_month,
+            start_year,
+            end_date,
+            end_month,
+            end_year,
+            dosageUnit,
+            note
+        } = req.body;
         const userId = req.params.id;
 
         // Verify user exists
@@ -20,17 +34,45 @@ const createReminder = async (req, res) => {
             });
         }
 
+        const hasEndDate = [end_date, end_month, end_year].every((v) => v !== undefined && v !== null);
+        let derivedPeriod = period;
+
+        if (hasEndDate) {
+            const startUtc = Date.UTC(Number(start_year), Number(start_month) - 1, Number(start_date));
+            const endUtc = Date.UTC(Number(end_year), Number(end_month) - 1, Number(end_date));
+
+            if (endUtc < startUtc) {
+                return res.status(400).json({
+                    status: 'fail',
+                    message: 'End date must be on or after start date'
+                });
+            }
+
+            const diffDays = Math.floor((endUtc - startUtc) / (1000 * 60 * 60 * 24)) + 1; // inclusive
+            derivedPeriod = diffDays;
+        } else if (derivedPeriod === undefined || derivedPeriod === null) {
+            return res.status(400).json({
+                status: 'fail',
+                message: 'Period is required when end date is not provided'
+            });
+        }
+
         // Create reminder
         const reminder = new Reminder({
             name,
             amount,
             hour,
             minute,
-            period,
+            period: Number(derivedPeriod),
             start_date,
             start_month,
             start_year,
+            end_date,
+            end_month,
+            end_year,
             state: false,
+            dosageUnit: dosageUnit || 'tablet',
+            note: note || '',
             user: userId
         });
 
@@ -91,12 +133,21 @@ const updateReminder = async (req, res) => {
     try {
         const { reminderID, userID } = req.params;
 
-        // Find and update reminder
-        const reminder = await Reminder.findById(reminderID);
+        // Verify user exists
+        const user = await User.findById(userID);
+        if (!user) {
+            return res.status(404).json({
+                status: 'fail',
+                message: 'User not found'
+            });
+        }
+
+        // Find and update reminder belonging to user
+        const reminder = await Reminder.findOne({ _id: reminderID, user: userID });
         if (!reminder) {
             return res.status(404).json({
                 status: 'fail',
-                message: 'Reminder not found'
+                message: 'Reminder not found for this user'
             });
         }
 

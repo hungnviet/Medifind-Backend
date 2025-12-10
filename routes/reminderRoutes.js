@@ -4,12 +4,12 @@ const {
     getReminder,
     updateReminder
 } = require('../controllers/reminderController');
-const { createReminderValidation, mongoIdValidation } = require('../middleware/validation');
+const { createReminderValidation, mongoIdValidation, updateReminderValidation } = require('../middleware/validation');
 
 const router = express.Router();
 
 router.post('/reminder/:id', createReminderValidation, createReminder);
 router.get('/reminder/:id', mongoIdValidation, getReminder);
-router.put('/reminder/:reminderID/:userID', updateReminder);
+router.put('/reminder/:reminderID/:userID', updateReminderValidation, updateReminder);
 
 module.exports = router;

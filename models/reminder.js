@@ -16,9 +16,17 @@ const reminderSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    dosageUnit: {
+        type: String,
+        default: 'tablet',
+    },
+    note: {
+        type: String,
+        default: '',
+    },
     state: {
         type: Boolean,
-        required: true,
+        default: false,
     },
     period: {
         type: Number,
@@ -36,9 +44,19 @@ const reminderSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    end_date: {
+        type: Number,
+    },
+    end_month: {
+        type: Number,
+    },
+    end_year: {
+        type: Number,
+    },
     user: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
+        required: true,
     }
 });
 mongoose.model("Reminder", reminderSchema);
