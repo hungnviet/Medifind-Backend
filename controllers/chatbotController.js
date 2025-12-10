@@ -18,7 +18,16 @@ const getReply = async (req, res) => {
         const apiKey = process.env.OPENAI_API_KEY;
         const endpoint = 'https://api.openai.com/v1/chat/completions';
         const model = 'gpt-3.5-turbo';
-        const messages = [{ role: 'user', content: message }];
+        const messages = [
+            {
+                role: 'system',
+                content: 'You are MediGPT, a medical information assistant. Provide accurate, helpful information about medications, symptoms, and general health topics. Always remind users that your information is educational and should not replace professional medical advice. When discussing medications, include relevant warnings about side effects and interactions. Keep responses concise and clear. If a question is outside your scope, recommend consulting a healthcare professional.'
+            },
+            {
+                role: 'user',
+                content: message
+            }
+        ];
         const temperature = 0.7;
 
         const response = await fetch(endpoint, {
