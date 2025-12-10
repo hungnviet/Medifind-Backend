@@ -2,7 +2,7 @@ const fetch = require('node-fetch');
 
 /**
  * Get AI chatbot reply using OpenAI API
- * @route GET /api/v1/chatBot
+ * @route POST /api/v1/chatBot
  */
 const getReply = async (req, res) => {
     try {

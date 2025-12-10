@@ -4,6 +4,7 @@ const { chatbotValidation } = require('../middleware/validation');
 
 const router = express.Router();
 
-router.get('/chatBot', chatbotValidation, getReply);
+// Chatbot endpoint now uses POST to avoid GET+body issues on mobile clients
+router.post('/chatBot', chatbotValidation, getReply);
 
 module.exports = router;
