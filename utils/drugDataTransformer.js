@@ -1,19 +1,43 @@
 /**
- * Transforms raw drug data from vie.json into standardized format
- * @param {Object} drugData - Raw drug data object
- * @returns {Object} Transformed drug information
+ * Normalizes text for accent-insensitive search
+ * @param {string} text
+ * @returns {string}
  */
-const transformDrugData = (drugData) => {
-    return {
-        ten: drugData.tenThuoc,
-        hoatChatChinh: drugData.thongTinThuocCoBan?.hoatChatChinh || null,
-        SDK: drugData.soDangKy,
-        SQD: drugData.thongTinDangKyThuoc?.soQuyetDinh || null,
-        xuatSu: drugData.congTySanXuat?.nuocSanXuat || null,
-        congTy: drugData.congTySanXuat?.tenCongTySanXuat || null,
-        dangBaoChe: drugData.thongTinDangKyThuoc?.dangBaoChe || null,
-        diaChiSX: drugData.congTySanXuat?.diaChiSanXuat || null,
-    };
+const removeDiacritics = (text) => {
+  if (!text) return '';
+  return text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
 };
 
-module.exports = { transformDrugData };
+/**
+ * Transforms raw drug data into list-friendly shape
+ * @param {Object} drugData
+ * @returns {Object}
+ */
+const transformDrugListItem = (drugData) => ({
+  id: drugData._id || drugData.id,
+  tenThuoc: drugData.tenThuoc,
+  hoatChatChinh: drugData.thongTinThuocCoBan?.hoatChatChinh || null,
+  hamLuong: drugData.thongTinThuocCoBan?.hamLuong || null,
+  dangBaoChe: drugData.thongTinThuocCoBan?.dangBaoChe || null,
+  tenCongTySanXuat: drugData.congTySanXuat?.tenCongTySanXuat || null,
+  soDangKy: drugData.soDangKy || null,
+});
+
+/**
+ * Keeps full drug detail (lean doc) with consistent id field
+ * @param {Object} drugData
+ * @returns {Object}
+ */
+const transformDrugDetail = (drugData) => ({
+  ...drugData,
+  id: drugData._id || drugData.id,
+});
+
+module.exports = {
+  transformDrugListItem,
+  transformDrugDetail,
+  removeDiacritics,
+};
