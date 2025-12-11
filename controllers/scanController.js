@@ -41,12 +41,19 @@ const handleScan = async (req, res) => {
             });
         }
 
-        const jsonArray = await response.json();
+        const ocrResult = await response.json();
+
+        // Extract OCR blocks from Drug-OCR-api response
+        const blocks = ocrResult.ocr_blocks || [];
 
         res.status(200).json({
             status: 'success',
-            results: jsonArray.results.length,
-            data: jsonArray.results
+            results: blocks.length,
+            data: {
+                id: ocrResult.id,
+                blocks: blocks,
+                verification: ocrResult.verification || null
+            }
         });
     } catch (error) {
         console.error('Error in handleScan:', error);
