@@ -44,7 +44,8 @@ const handleScan = async (req, res) => {
         const ocrResult = await response.json();
 
         // Extract OCR blocks from Drug-OCR-api response
-        const blocks = ocrResult.ocr_blocks || [];
+        const blocks = ocrResult.ocr_blocks || ocrResult.blocks || [];
+        const structuredDrugs = ocrResult.structured_drugs || [];
 
         res.status(200).json({
             status: 'success',
@@ -52,6 +53,7 @@ const handleScan = async (req, res) => {
             data: {
                 id: ocrResult.id,
                 blocks: blocks,
+                structuredDrugs,
                 verification: ocrResult.verification || null
             }
         });
