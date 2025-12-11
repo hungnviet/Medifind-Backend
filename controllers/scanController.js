@@ -44,12 +44,17 @@ const handleScan = async (req, res) => {
         const ocrResult = await response.json();
 
         // Extract OCR blocks from Drug-OCR-api response
-        const blocks = ocrResult.ocr_blocks || ocrResult.blocks || [];
+        // Prefer corrected blocks from ChatGPT verification when available
+        const hasVerification = ocrResult.verification && ocrResult.verification.verified;
+        const blocks = hasVerification
+            ? (ocrResult.verification.blocks || ocrResult.ocr_blocks || ocrResult.blocks || [])
+            : (ocrResult.ocr_blocks || ocrResult.blocks || []);
+
         const structuredDrugs = ocrResult.structured_drugs || [];
 
         res.status(200).json({
             status: 'success',
-            results: blocks.length,
+            results: structuredDrugs.length || blocks.length,
             data: {
                 id: ocrResult.id,
                 blocks: blocks,
