@@ -1,4 +1,3 @@
-const express = require('express');
 const multer = require('multer');
 const mongoose = require("mongoose");
 const User = mongoose.model("User");
@@ -6,8 +5,6 @@ const Reminder = mongoose.model("Reminder");
 const FormData = require('form-data');
 const fetch = require('node-fetch');
 const fs = require('fs');
-const app = express();
-app.use(express.json())
 const list = JSON.parse(fs.readFileSync(`${__dirname}/vie.json`));
 const getDrugWithName = (req, res) => {
     const name = req.params.name;

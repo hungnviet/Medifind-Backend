@@ -12,10 +12,7 @@ if (!process.env.MONGO_URI) {
 }
 const mongourl = process.env.MONGO_URI
 mongoose
-    .connect(mongourl, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    })
+    .connect(mongourl)
     .then(() => {
         console.log("Connected to MongoDB");
     })
