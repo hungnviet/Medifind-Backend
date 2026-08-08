@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require('express');
 const multer = require('multer');
 const mongoose = require("mongoose");
@@ -5,7 +6,11 @@ const app = express();
 app.use(express.json())
 require("./models/user");
 require("./models/reminder");
-const mongourl = "mongodb+srv://medifind:medifind@medifind.uezyqvq.mongodb.net/"
+if (!process.env.MONGO_URI) {
+    console.log("Missing MONGO_URI. Copy .env.example to .env and fill it in.");
+    process.exit(1);
+}
+const mongourl = process.env.MONGO_URI
 mongoose
     .connect(mongourl, {
         useNewUrlParser: true,

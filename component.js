@@ -49,7 +49,7 @@ const getReply = async (req, res) => {
 
 
     const question = content.message;
-    const apiKey = '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';
+    const apiKey = process.env.OPENAI_API_KEY;
     const endpoint = 'https://api.openai.com/v1/chat/completions';
     const model = 'gpt-3.5-turbo';
     const messages = [{ role: 'user', content: `${question}` }];

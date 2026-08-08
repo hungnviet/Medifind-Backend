@@ -4,6 +4,7 @@
   "description": "",
   "main": "app.js",
   "scripts": {
+    "start": "node app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "vercel-build": "echo hello"
   },
@@ -11,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "debug": "^4.3.4",
+    "dotenv": "^16.6.1",
     "express": "^4.18.2",
     "mongodb": "^6.3.0",
     "mongoose": "^8.1.1",
