@@ -81,6 +81,9 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 const handleScan = async (req, res) => {
     const file = req.file;
+    if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+    }
     const formData = new FormData();
     formData.append("file", file.buffer, { filename: file.originalname });
 
@@ -167,6 +170,9 @@ const signIn = async (req, res) => {
 const createReminder = async (req, res) => {
     const { name, amount, hour, minute, period, start_date, start_month, start_year } = req.body;
     const userId = req.params.id;
+    if (!mongoose.isValidObjectId(userId)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
     const user = await User.findById(userId);
     if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -177,6 +183,9 @@ const createReminder = async (req, res) => {
 };
 const getReminder = async (req, res) => {
     const userID = req.params.id;
+    if (!mongoose.isValidObjectId(userID)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
     const user = await User.findById(userID);
     if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -189,6 +198,9 @@ const getReminder = async (req, res) => {
 const updateReminder = async (req, res) => {
     const reminderID = req.params.reminderID;
     const userID = req.params.userID;
+    if (!mongoose.isValidObjectId(reminderID) || !mongoose.isValidObjectId(userID)) {
+        return res.status(404).json({ error: 'Reminder not found' });
+    }
     const reminder = await Reminder.findById(reminderID);
     if (!reminder) {
         return res.status(404).json({ error: 'Reminder not found' });
@@ -203,6 +215,9 @@ const updateReminder = async (req, res) => {
 const updateHistorySearch = async (req, res) => {
     const userID = req.params.id;
     const drugName = req.body.name;
+    if (!mongoose.isValidObjectId(userID)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
     const user = await User.findById(userID);
     if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -214,6 +229,9 @@ const updateHistorySearch = async (req, res) => {
 }
 const getHistorySearch = async (req, res) => {
     const userID = req.params.id;
+    if (!mongoose.isValidObjectId(userID)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
     const user = await User.findById(userID);
     if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -225,6 +243,9 @@ const getHistorySearch = async (req, res) => {
 }
 const getHistoryMedicine = async (req, res) => {
     const userID = req.params.id;
+    if (!mongoose.isValidObjectId(userID)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
     const user = await User.findById(userID);
     if (!user) {
         return res.status(404).json({ error: 'User not found' });
@@ -236,6 +257,9 @@ const getHistoryMedicine = async (req, res) => {
 const postHistoryMedicine = async (req, res) => {
     const userID = req.params.id;
     const newHistory = req.body;
+    if (!mongoose.isValidObjectId(userID)) {
+        return res.status(404).json({ error: 'User not found' });
+    }
     const user = await User.findById(userID);
     if (!user) {
         return res.status(404).json({ error: 'User not found' });

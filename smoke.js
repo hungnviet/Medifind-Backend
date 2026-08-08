@@ -296,6 +296,15 @@ async function main() {
             return null;
         });
 
+        // Not covered by an explicit guard -- this exercises the asyncHandler
+        // backstop, which is what protects against unanticipated throws.
+        expect(
+            "POST /reminder/:id with an invalid body does not kill the server",
+            await check("POST /reminder invalid body", () => call("POST", `/reminder/${userID}`, { json: {} }), uri),
+            500,
+            (b) => (b && b.error ? null : `expected an error body, got ${JSON.stringify(b).slice(0, 120)}`)
+        );
+
         expect(
             "GET /reminder/:id lists reminders",
             await check("GET /reminder/:id", () => call("GET", `/reminder/${userID}`), uri),

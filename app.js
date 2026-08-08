@@ -24,22 +24,30 @@ mongoose
     });
 
 const { getDrugWithName, getReply, handleScan, upload, signUp, signIn, createReminder, getReminder, updateReminder, updateHistorySearch, getHistorySearch, getHistoryMedicine, postHistoryMedicine } = require("./component");
+// Express 4 does not catch rejected promises from async handlers, and node
+// terminates the process on an unhandled rejection. Without this, any throw
+// inside a handler takes the whole server down.
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 app
     .route("/api/v1/drug/:name")
-    .get(getDrugWithName)
+    .get(asyncHandler(getDrugWithName))
 app
     .route("/api/v1/chatBot")
-    .get(getReply)
-app.post("/api/v1/nlp", upload.single('file'), handleScan);
-app.post("/api/v1/signup", signUp);
-app.post("/api/v1/signin", signIn);
-app.post("/api/v1/reminder/:id", createReminder);
-app.get("/api/v1/reminder/:id", getReminder);
-app.put("/api/v1/reminder/:reminderID/:userID", updateReminder);
-app.post("/api/v1/historySearch/:id", updateHistorySearch);
-app.get("/api/v1/historySearch/:id", getHistorySearch);
-app.get("/api/v1/historyMedicine/:id", getHistoryMedicine);
-app.post("/api/v1/historyMedicine/:id", postHistoryMedicine);
+    .get(asyncHandler(getReply))
+app.post("/api/v1/nlp", upload.single('file'), asyncHandler(handleScan));
+app.post("/api/v1/signup", asyncHandler(signUp));
+app.post("/api/v1/signin", asyncHandler(signIn));
+app.post("/api/v1/reminder/:id", asyncHandler(createReminder));
+app.get("/api/v1/reminder/:id", asyncHandler(getReminder));
+app.put("/api/v1/reminder/:reminderID/:userID", asyncHandler(updateReminder));
+app.post("/api/v1/historySearch/:id", asyncHandler(updateHistorySearch));
+app.get("/api/v1/historySearch/:id", asyncHandler(getHistorySearch));
+app.get("/api/v1/historyMedicine/:id", asyncHandler(getHistoryMedicine));
+app.post("/api/v1/historyMedicine/:id", asyncHandler(postHistoryMedicine));
+app.use((err, req, res, next) => {
+    console.log("Unhandled error", err);
+    res.status(500).json({ error: "Internal server error" });
+});
 const port = 3000;
 app.listen(port, () => {
     console.log(`App running on port ${port}...`);
