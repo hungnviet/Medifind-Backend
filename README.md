@@ -37,7 +37,7 @@ The layout is deliberately flat — there is no `routes/` or `controllers/` spli
 | `models/reminder.js` | `Reminder` Mongoose schema |
 | `vie.json` | Drug registry, 57 MB |
 
-**Startup cost:** `component.js` reads and parses `vie.json` synchronously at require-time ([component.js:11](component.js#L11)), so the process allocates roughly 57 MB and blocks for a moment before it can serve the first request. Drug search is then a linear in-memory scan — there is no database index or search engine involved.
+**Startup cost:** `component.js` reads and parses `vie.json` synchronously at require-time ([component.js:8](component.js#L8)), so the process allocates roughly 57 MB and blocks for a moment before it can serve the first request. Drug search is then a linear in-memory scan — there is no database index or search engine involved.
 
 ---
 
@@ -82,7 +82,21 @@ App running on port 3000...
 Connected to MongoDB
 ```
 
-The port is hardcoded to `3000` ([app.js:43](app.js#L43)), as is the OCR service URL ([component.js:87](component.js#L87)); neither is configurable via environment variables.
+The port is hardcoded to `3000` ([app.js:48](app.js#L48)), as is the OCR service URL ([component.js:87](component.js#L87)); neither is configurable via environment variables.
+
+---
+
+## Testing
+
+```bash
+npm run smoke
+```
+
+Exercises all 12 endpoints plus the error paths. It spawns `app.js` itself, so it can tell a failed request apart from a dead server — if the process exits, the case is reported as `CRASH`, the server is restarted, and the remaining checks still run.
+
+Runs against a throwaway `medifind_smoke` database derived from `MONGO_URI`, and empties it afterwards, so a run never touches real data. The `/chatBot` check is skipped unless `OPENAI_API_KEY` is set to a real key, and `/nlp` retries once to absorb an OCR cold start.
+
+There are no unit tests; this is the only automated coverage.
 
 ---
 
@@ -91,6 +105,8 @@ The port is hardcoded to `3000` ([app.js:43](app.js#L43)), as is the OCR service
 Base path: `http://localhost:3000/api/v1`
 
 All 12 endpoints are unauthenticated. Where an endpoint operates on a user, the user's MongoDB `_id` is passed as a URL path parameter — see [Known Issues](#known-issues--limitations).
+
+**Error handling.** Handlers are wrapped so a rejected promise can never reach the process as an unhandled rejection; anything unexpected returns `500 {"error": "Internal server error"}` and is logged. An id that is not a valid ObjectId returns the same `404` body that endpoint already uses for a missing record, rather than a distinct error — so callers need no new code path for malformed input.
 
 ### Endpoint summary
 
@@ -165,7 +181,7 @@ A query matching nothing returns `200` with `"result": []` — **not** a `404`.
 
 Forwards `message` to OpenAI `gpt-3.5-turbo` (temperature `0.7`) and returns the reply. No system prompt, no conversation memory — each call is independent.
 
-> **Note:** this is registered as a `GET` but reads its input from the **request body**. Many HTTP clients and proxies drop bodies on GET requests. See [Known Issues](#known-issues--limitations).
+> **Note:** this is registered as a `GET` but reads its input from the **request body**. That is not merely unusual — Node's built-in `fetch` refuses outright (`Request with GET/HEAD method cannot have body`), as do many proxies and caches. Reaching this endpoint requires a lower-level client such as `node:http` or `curl`. See [Known Issues](#known-issues--limitations).
 
 Request body:
 
@@ -219,6 +235,8 @@ curl -F "file=@smalltest.png" http://localhost:3000/api/v1/nlp
 An empty array means the OCR ran but matched no known medicine.
 
 **Cold starts:** the OCR container scales to zero when idle. The first request after a quiet period frequently fails while the container wakes, surfacing as the OCR service's status code passed straight through — typically `502` with `{"error": "Picture upload failed"}`. Retrying a few seconds later succeeds. There is no retry logic in this service, so clients should handle it.
+
+`400` — `{"error": "No file uploaded"}` when the `file` field is absent.
 
 `500` — `{"error": "An error occurred while processing the image"}` if the request never reached the OCR service.
 
@@ -386,27 +404,26 @@ Documented as they stand today. None of these are fixed by this README.
 - **Passwords are stored and compared in plaintext.** [component.js:161](component.js#L161) does `user.password === password`; there is no hashing anywhere. A database leak exposes every password directly.
 - **`POST /signup` returns the password** in its response body ([component.js:143](component.js#L143)).
 - **There is no authentication layer.** Sign-in returns a raw `userID` rather than a session or token, and every user-scoped endpoint takes that id from the URL path. Any caller who knows or guesses a MongoDB ObjectId can read and write that user's reminders and history. Nothing verifies that the caller is the user named in the path.
-- **`PUT /reminder/:reminderID/:userID` does not check ownership** — the two ids are used independently ([component.js:189-202](component.js#L189-L202)).
+- **`PUT /reminder/:reminderID/:userID` does not check ownership** — the two ids are used independently ([component.js:195-211](component.js#L195-L211)).
 - **Sign-in distinguishes "Invalid Email" from "Invalid password"**, enabling account enumeration.
 
 ### Correctness
 
-- **`dangBaoChe` (dosage form) is always missing from API responses.** Both handlers read it from `thongTinDangKyThuoc` ([component.js:33](component.js#L33) and [component.js:110](component.js#L110)), but that object has no such key in any of the 39,880 records — the value actually lives at `thongTinThuocCoBan.dangBaoChe`, which is populated for 33,518 of them. The result is `undefined`, which `JSON.stringify` silently drops, so the field never appears in a response at all. Fixing it is a one-word change to the path in each handler.
-- **The `404` branch in `getDrugWithName` is unreachable.** [component.js:19](component.js#L19) tests `if (!data)`, but `Array.prototype.filter` always returns an array — truthy even when empty. A search with no matches returns `200` and an empty list.
-- **`GET /chatBot` reads `req.body`** ([component.js:51](component.js#L51)). GET requests with bodies are not reliably transmitted by HTTP clients, proxies, or caches.
+- **`dangBaoChe` (dosage form) is always missing from API responses.** Both handlers read it from `thongTinDangKyThuoc` ([component.js:30](component.js#L30) and [component.js:110](component.js#L110)), but that object has no such key in any of the 39,880 records — the value actually lives at `thongTinThuocCoBan.dangBaoChe`, which is populated for 33,518 of them. The result is `undefined`, which `JSON.stringify` silently drops, so the field never appears in a response at all. Fixing it is a one-word change to the path in each handler.
+- **The `404` branch in `getDrugWithName` is unreachable.** [component.js:16](component.js#L16) tests `if (!data)`, but `Array.prototype.filter` always returns an array — truthy even when empty. A search with no matches returns `200` and an empty list.
+- **`GET /chatBot` reads `req.body`** ([component.js:48](component.js#L48)), so standards-compliant clients cannot call it. Node's native `fetch` rejects the request before it is sent; the smoke test has to fall back to `node:http`. Changing the route to `POST` would fix it, but breaks the existing frontend.
 - **Response envelopes are inconsistent.** Most endpoints return `{status, data}`, but `/nlp` returns a bare array and `POST /historyMedicine` returns `{status}` with no `data`. Error shapes vary too — sometimes `{error}`, sometimes `{status, message}`, sometimes `{status, error}`.
-- **`"sccuess"` typo** in the chatbot response ([component.js:71](component.js#L71)).
+- **`"sccuess"` typo** in the chatbot response ([component.js:68](component.js#L68)).
 - **Search results are capped at 5** with no pagination, so a common substring silently hides most matches.
 - **`isActive` is never filtered on**, so withdrawn drugs are returned alongside current ones.
 
 ### Repository hygiene
 
-- **`form-data` and `node-fetch` are `require`d but not declared** in `package.json` ([component.js:6-7](component.js#L6-L7)). They resolve today only because they are transitive dependencies of `openai` and `multer` — a dependency bump could break the app with no change to this repo.
-- **Unused dependencies:** `openai` (the chatbot calls the REST endpoint with raw `fetch` instead of the SDK), `python-shell`, `uuid`, `debug`, and `mongodb` (Mongoose brings its own driver).
 - **`requirements.txt`** (`pyahocorasick`, `pymongo`) is left over from when OCR and matching ran in-process via `python-shell`. That work now lives in the Azure container; nothing in this repository installs or uses these packages.
-- **`node_modules/` and `vie.json` are committed to git.** A `.gitignore` now excludes `node_modules/` from future additions, but the already-tracked copies remain in history and in the index; untracking them is a separate cleanup.
-- **`smalltest.png`** is a sample medicine photo used for exercising `POST /api/v1/nlp`.
-- **No tests.** `npm test` exits 1 by design.
+- **`vie.json` is committed to git** at 57 MB, so every clone pays for it. `node_modules/` was tracked too and has since been removed from the index, but both remain in history — a clone still downloads them.
+- **`node-fetch` is pinned to `^2.7.0`** and must stay there: v3 is ESM-only and cannot be `require`d from this CommonJS codebase. Node 18+ has a global `fetch`, so the dependency could be dropped entirely instead.
+- **`"vercel-build": "echo hello"`** in `package.json` looks vestigial.
+- **No unit tests.** `npm test` exits 1 by design; `npm run smoke` is the only automated coverage.
 
 ---
 
