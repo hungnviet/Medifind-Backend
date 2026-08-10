@@ -12,7 +12,7 @@ Built with Express 4 and Mongoose 8.
                         ┌──────────────────────────────┐
                         │   Client (MediFind app)      │
                         └──────────────┬───────────────┘
-                                       │ HTTP :3000
+                                       │ HTTP :3000 (default)
                         ┌──────────────▼───────────────┐
                         │   This service (Express)     │
                         │   app.js       → routes      │
@@ -31,13 +31,15 @@ The layout is deliberately flat — there is no `routes/` or `controllers/` spli
 
 | File | Role |
 |---|---|
-| `app.js` | Loads env vars, connects to MongoDB, registers all 12 routes, listens on port 3000 |
+| `app.js` | Loads env vars, connects to MongoDB, registers all 12 routes, listens on `PORT` (default 3000) |
 | `component.js` | Every request handler, plus the multer upload config |
 | `models/user.js` | `User` Mongoose schema |
 | `models/reminder.js` | `Reminder` Mongoose schema |
 | `vie.json` | Drug registry, 57 MB |
 
-**Startup cost:** `component.js` reads and parses `vie.json` synchronously at require-time ([component.js:8](component.js#L8)), so the process allocates roughly 57 MB and blocks for a moment before it can serve the first request. Drug search is then a linear in-memory scan — there is no database index or search engine involved.
+**Startup cost:** `component.js` reads and parses `vie.json` synchronously at require-time ([component.js:8](component.js#L8)), so the process blocks for roughly **230 ms** before it can serve the first request and peaks at about **319 MB** of resident memory, settling around **133 MB**. That peak is worth knowing when choosing a host — a 512 MB tier has little headroom.
+
+Drug search is then a linear in-memory scan — no database index, no search engine. Measured at **5.5–6.8 ms** per request across all 39,880 records, so despite appearances this is not a bottleneck.
 
 ---
 
@@ -82,7 +84,13 @@ App running on port 3000...
 Connected to MongoDB
 ```
 
-The port is hardcoded to `3000` ([app.js:48](app.js#L48)), as is the OCR service URL ([component.js:87](component.js#L87)); neither is configurable via environment variables.
+The port defaults to `3000` and can be overridden with `PORT` ([app.js:48](app.js#L48)):
+
+```bash
+PORT=3100 npm start
+```
+
+The OCR service URL is still hardcoded ([component.js:87](component.js#L87)) and is not configurable.
 
 ---
 
@@ -92,17 +100,29 @@ The port is hardcoded to `3000` ([app.js:48](app.js#L48)), as is the OCR service
 npm run smoke
 ```
 
-Exercises all 12 endpoints plus the error paths. It spawns `app.js` itself, so it can tell a failed request apart from a dead server — if the process exits, the case is reported as `CRASH`, the server is restarted, and the remaining checks still run.
+**21 checks across all 12 endpoints, plus the error paths. The current baseline is 21/21.** It spawns `app.js` itself, so it can tell a failed request apart from a dead server — if the process exits, the case is reported as `CRASH`, the server is restarted, and the remaining checks still run.
 
-Runs against a throwaway `medifind_smoke` database derived from `MONGO_URI`, and empties it afterwards, so a run never touches real data. The `/chatBot` check is skipped unless `OPENAI_API_KEY` is set to a real key, and `/nlp` retries once to absorb an OCR cold start.
+Runs against a throwaway `medifind_smoke` database derived from `MONGO_URI`, and empties it afterwards, so a run never touches real data.
 
-There are no unit tests; this is the only automated coverage.
+| Variable | Effect |
+|---|---|
+| `PORT` | Port for the spawned server, default `3000`. Set it if 3000 is occupied. |
+| `SKIP_OCR=1` | Skips the `POST /nlp` happy path — the only check that calls the Azure OCR container. The missing-file check still runs, since it returns before any outbound request. |
+| `OPENAI_API_KEY` | The `/chatBot` check is skipped unless this is a real key. When it is, the run makes a live, billed OpenAI call. |
+
+```bash
+PORT=3100 SKIP_OCR=1 npm run smoke
+```
+
+Without `SKIP_OCR`, `/nlp` retries once to absorb an OCR cold start.
+
+There are no unit tests; this is the only automated coverage. A full verification run — including browser-reachability probes the smoke suite cannot perform, and a screen-by-screen readiness assessment against the frontend — is recorded in [docs/backend-readiness.md](docs/backend-readiness.md).
 
 ---
 
 ## API Reference
 
-Base path: `http://localhost:3000/api/v1`
+Base path: `http://localhost:3000/api/v1` (or whatever `PORT` is set to)
 
 All 12 endpoints are unauthenticated. Where an endpoint operates on a user, the user's MongoDB `_id` is passed as a URL path parameter — see [Known Issues](#known-issues--limitations).
 
@@ -181,7 +201,15 @@ A query matching nothing returns `200` with `"result": []` — **not** a `404`.
 
 Forwards `message` to OpenAI `gpt-3.5-turbo` (temperature `0.7`) and returns the reply. No system prompt, no conversation memory — each call is independent.
 
-> **Note:** this is registered as a `GET` but reads its input from the **request body**. That is not merely unusual — Node's built-in `fetch` refuses outright (`Request with GET/HEAD method cannot have body`), as do many proxies and caches. Reaching this endpoint requires a lower-level client such as `node:http` or `curl`. See [Known Issues](#known-issues--limitations).
+> **Note:** this is registered as a `GET` but reads its input from the **request body**. That is not merely unusual — Node's built-in `fetch` refuses outright (`Request with GET/HEAD method cannot have body`), as do browsers, many proxies and caches. Reaching this endpoint requires a lower-level client such as `node:http` or `curl`.
+>
+> **It fails silently rather than erroring.** Called without a body — the only form a browser can send — `content.message` is `undefined`, so the handler forwards the literal string `"undefined"` to OpenAI and returns `200` with a confident reply to a question nobody asked, while billing the key:
+>
+> ```json
+> { "status": "sccuess", "reply": { "reply": "Hello! How can I assist you today?" } }
+> ```
+>
+> See [Known Issues](#known-issues--limitations).
 
 Request body:
 
@@ -387,35 +415,56 @@ soDangKy               registration number
 thongTinDangKyThuoc    registration info (dates, decision number)
 thongTinThuocCoBan     core drug info (active ingredient, dosage form, packaging)
 congTySanXuat          manufacturer (name, address, country)
-phanLoaiThuocEnum      classification code
-ghiChu                 notes
-isActive               active flag — note: not filtered on by any endpoint
+phanLoaiThuocEnum      classification code — 1=24,943  2=14,406  3=70  4=459  null=2
+ghiChu                 notes — empty in all 39,880 records
+isActive               active flag — true in all 39,880 records, so nothing to filter
 id                     record id
 ```
+
+**Field coverage**, measured across the full dataset — relevant when deciding what an endpoint can actually return:
+
+| Field | Populated |
+|---|---|
+| `soDangKy` | 39,880 (100%) |
+| `congTySanXuat.tenCongTySanXuat` | 39,880 (100%) |
+| `thongTinThuocCoBan.dongGoi` (packaging) | 39,879 (100%) |
+| `thongTinThuocCoBan.hoatChatChinh` | 39,879 (100%) |
+| `thongTinThuocCoBan.dangBaoChe` (dosage form) | 33,518 (84.0%) |
+| `thongTinThuocCoBan.hamLuong` (strength) | 20,496 (51.4%) |
+| `thongTinDangKyThuoc.dangBaoChe` — *what the handlers read* | **0 (0.0%)** |
+| `thongTinThuocCoBan.nhomThuoc` (drug group) | **0 distinct values** |
+| `ghiChu`, `tenDuongDung`, `loaiThuoc` | **0 (0.0%)** |
+
+There is **no therapeutic category data** — `nhomThuoc` is empty throughout and `phanLoaiThuocEnum` is a coarse four-value regulatory code, not a therapeutic classification. Any category-based browsing has to be derived or curated elsewhere.
 
 ---
 
 ## Known Issues & Limitations
 
-Documented as they stand today. None of these are fixed by this README.
+Documented as they stand today. None of these are fixed by this README. Items marked **verified** were reproduced against a running server during the readiness run — see [docs/backend-readiness.md](docs/backend-readiness.md) for the commands and output.
 
 ### Security
 
 - **Passwords are stored and compared in plaintext.** [component.js:161](component.js#L161) does `user.password === password`; there is no hashing anywhere. A database leak exposes every password directly.
 - **`POST /signup` returns the password** in its response body ([component.js:143](component.js#L143)).
 - **There is no authentication layer.** Sign-in returns a raw `userID` rather than a session or token, and every user-scoped endpoint takes that id from the URL path. Any caller who knows or guesses a MongoDB ObjectId can read and write that user's reminders and history. Nothing verifies that the caller is the user named in the path.
-- **`PUT /reminder/:reminderID/:userID` does not check ownership** — the two ids are used independently ([component.js:195-211](component.js#L195-L211)).
+- **`PUT /reminder/:reminderID/:userID` does not check ownership** — the two ids are used independently ([component.js:195-211](component.js#L195-L211)). **Verified:** a second account, supplying only its own user id and another user's reminder id, changed that reminder and received `200`.
 - **Sign-in distinguishes "Invalid Email" from "Invalid password"**, enabling account enumeration.
+- **The OpenAI proxy is unauthenticated and unmetered.** `GET /chatBot` reaches a paid API with no auth and no rate limit, so anyone who can reach the host can spend the key.
 
 ### Correctness
 
-- **`dangBaoChe` (dosage form) is always missing from API responses.** Both handlers read it from `thongTinDangKyThuoc` ([component.js:30](component.js#L30) and [component.js:110](component.js#L110)), but that object has no such key in any of the 39,880 records — the value actually lives at `thongTinThuocCoBan.dangBaoChe`, which is populated for 33,518 of them. The result is `undefined`, which `JSON.stringify` silently drops, so the field never appears in a response at all. Fixing it is a one-word change to the path in each handler.
+- **`dangBaoChe` (dosage form) is always missing from API responses.** **Verified** — the field is absent from every response. Both handlers read it from `thongTinDangKyThuoc` ([component.js:30](component.js#L30) and [component.js:110](component.js#L110)), where it is populated in **0** of the 39,880 records; the value lives at `thongTinThuocCoBan.dangBaoChe`, populated in **33,518** (84%). The result is `undefined`, which `JSON.stringify` silently drops. Fixing it is a one-word change to the path in each handler.
 - **The `404` branch in `getDrugWithName` is unreachable.** [component.js:16](component.js#L16) tests `if (!data)`, but `Array.prototype.filter` always returns an array — truthy even when empty. A search with no matches returns `200` and an empty list.
-- **`GET /chatBot` reads `req.body`** ([component.js:48](component.js#L48)), so standards-compliant clients cannot call it. Node's native `fetch` rejects the request before it is sent; the smoke test has to fall back to `node:http`. Changing the route to `POST` would fix it, but breaks the existing frontend.
+- **`GET /chatBot` reads `req.body`** ([component.js:48](component.js#L48)), so standards-compliant clients cannot call it, and calling it *without* a body returns `200` with a reply to the literal string `"undefined"` rather than an error. **Verified** both ways. Changing the route to `POST` would fix it, but breaks the existing frontend.
+- **Search matches the drug name only, never the active ingredient.** [component.js:12-15](component.js#L12-L15) filters on `tenThuoc`. For `paracetamol`, 240 records match by name but **1,668** match by `hoatChatChinh` — so **1,429 relevant records are unreachable through the API**.
+- **No `cors` middleware.** **Verified** — neither a simple request nor an `OPTIONS` preflight carries any `Access-Control-*` header, so no browser-based client can call this service. The preflight returns `200`, which looks healthy in a terminal and is still rejected by the browser.
+- **Unknown routes return Express's HTML error page**, not JSON, so a client's `res.json()` throws `SyntaxError: Unexpected token '<'` instead of surfacing a clean `404`. There is no catch-all handler.
 - **Response envelopes are inconsistent.** Most endpoints return `{status, data}`, but `/nlp` returns a bare array and `POST /historyMedicine` returns `{status}` with no `data`. Error shapes vary too — sometimes `{error}`, sometimes `{status, message}`, sometimes `{status, error}`.
 - **`"sccuess"` typo** in the chatbot response ([component.js:68](component.js#L68)).
-- **Search results are capped at 5** with no pagination, so a common substring silently hides most matches.
-- **`isActive` is never filtered on**, so withdrawn drugs are returned alongside current ones.
+- **Search results are capped at 5** with no pagination, so a common substring silently hides most matches — 235 of the 240 `paracetamol` name matches, for instance.
+- **`POST /reminder` silently discards unrecognised fields.** **Verified** — a body carrying extra keys returns `201 Created` with none of them persisted, because the schema has no place for them. Clients get a success response and lose data.
+- **`multer` has no file size limit** ([component.js:78](component.js#L78)) and holds uploads in memory, so a large upload is bounded only by available RAM.
 
 ### Repository hygiene
 
@@ -427,14 +476,13 @@ Documented as they stand today. None of these are fixed by this README.
 
 ---
 
-## Security Notice — rotate the old credentials
+## Security Notice — old credentials, rotated
 
-Until recently, a MongoDB Atlas connection string and an OpenAI API key were hardcoded in `app.js` and `component.js`. They have been moved to environment variables, **but both remain in this repository's git history and must be treated as compromised.**
+Until recently, a MongoDB Atlas connection string and an OpenAI API key were hardcoded in `app.js` and `component.js`. They were moved to environment variables, and **both have since been rotated** — verified during the readiness run:
 
-If you maintain this project:
+- The OpenAI key in `.env` no longer matches the exposed `sk-tDOAuqRC…` prefix.
+- The MongoDB credential differs from the one in git history, and now points at a **different cluster host** entirely.
 
-1. **Revoke the exposed OpenAI key** (`sk-tDOAuqRC…`) at [platform.openai.com/api-keys](https://platform.openai.com/api-keys) and issue a new one.
-2. **Rotate the `medifind` MongoDB Atlas user's password**, and review the cluster's network access rules while you are there.
-3. Rewriting history with `git filter-repo` or BFG is optional and requires every collaborator to re-clone. **Rotation is what actually closes the exposure** — do that first, regardless.
+The exposure is therefore closed. The old values remain in this repository's history and always will unless it is rewritten, but they are dead — rotation, not history rewriting, is what closed this. Rewriting with `git filter-repo` or BFG stays optional and would require every collaborator to re-clone.
 
 Never commit the new values. `.env` is git-ignored; `.env.example` holds placeholders only.
