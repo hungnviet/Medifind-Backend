@@ -45,7 +45,7 @@ app.use((err, req, res, next) => {
     console.log("Unhandled error", err);
     res.status(500).json({ error: "Internal server error" });
 });
-const port = 3000;
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
     console.log(`App running on port ${port}...`);
 })

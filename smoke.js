@@ -12,7 +12,7 @@ const fs = require("fs");
 const http = require("http");
 const mongoose = require("mongoose");
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const BASE = `http://localhost:${PORT}/api/v1`;
 const SMOKE_DB = "medifind_smoke";
 const STARTUP_TIMEOUT_MS = 60000;
@@ -222,22 +222,29 @@ async function main() {
     }
 
     // ---- OCR scan ----------------------------------------------------
-    const scanForm = () => {
-        const fd = new FormData();
-        fd.append("file", new Blob([fs.readFileSync(`${__dirname}/smalltest.png`)]), "smalltest.png");
-        return fd;
-    };
-    let scan = await check("POST /nlp", () => call("POST", "/nlp", { form: scanForm() }), uri);
-    // The OCR container scales to zero; the first call after an idle period
-    // often 502s while it wakes. Retry once before calling that a failure.
-    if (scan && scan.status === 502) {
-        console.log("       (OCR cold start, retrying once)");
-        await new Promise((r) => setTimeout(r, 5000));
-        scan = await check("POST /nlp", () => call("POST", "/nlp", { form: scanForm() }), uri);
+    // This is the only check that calls the Azure OCR container, so SKIP_OCR=1
+    // is the way to run the suite without reaching it. The missing-file check
+    // below is not gated -- it returns 400 before any outbound request.
+    if (!process.env.SKIP_OCR) {
+        const scanForm = () => {
+            const fd = new FormData();
+            fd.append("file", new Blob([fs.readFileSync(`${__dirname}/smalltest.png`)]), "smalltest.png");
+            return fd;
+        };
+        let scan = await check("POST /nlp", () => call("POST", "/nlp", { form: scanForm() }), uri);
+        // The OCR container scales to zero; the first call after an idle period
+        // often 502s while it wakes. Retry once before calling that a failure.
+        if (scan && scan.status === 502) {
+            console.log("       (OCR cold start, retrying once)");
+            await new Promise((r) => setTimeout(r, 5000));
+            scan = await check("POST /nlp", () => call("POST", "/nlp", { form: scanForm() }), uri);
+        }
+        expect("POST /nlp identifies medicine from image", scan, 200, (b) =>
+            Array.isArray(b) ? null : `expected an array, got ${JSON.stringify(b).slice(0, 120)}`
+        );
+    } else {
+        record("POST /nlp identifies medicine from image", true, "skipped (SKIP_OCR set)");
     }
-    expect("POST /nlp identifies medicine from image", scan, 200, (b) =>
-        Array.isArray(b) ? null : `expected an array, got ${JSON.stringify(b).slice(0, 120)}`
-    );
 
     // ---- CRASH CASE 1: upload with no file ---------------------------
     expect(
