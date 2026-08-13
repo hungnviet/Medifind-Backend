@@ -9,26 +9,45 @@ const list = JSON.parse(fs.readFileSync(`${__dirname}/vie.json`));
 const getDrugWithName = (req, res) => {
     const name = req.params.name;
 
-    const data = list.filter((el) => {
-        const nameInList = el.tenThuoc.toLowerCase();
-        return nameInList.includes(name.toLowerCase());
-    })
+    // One pass, two buckets. A name match is a better answer than "this is one
+    // of 1,668 products containing paracetamol", so the buckets are searched
+    // together and concatenated rather than interleaved.
+    const needle = name.toLowerCase();
+    const byName = [];
+    const byIngredient = [];
+    for (const el of list) {
+        if (el.tenThuoc.toLowerCase().includes(needle)) {
+            byName.push(el);
+            continue;
+        }
+        const ingredient = el.thongTinThuocCoBan ? el.thongTinThuocCoBan.hoatChatChinh : null;
+        if (ingredient && ingredient.toLowerCase().includes(needle)) {
+            byIngredient.push(el);
+        }
+    }
+    const data = byName.concat(byIngredient);
     if (!data) {
         res.status(404).json({ status: "fail", message: "No drug found with this name" });
         return;
     }
+    // Defaults to 5 deliberately: that is the cap this endpoint has always had,
+    // and callers that send no `limit` must keep seeing exactly it.
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 5, 1), 50);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const page = data.slice(offset, offset + limit);
     const result = [];
-    const count = data.length > 5 ? 5 : data.length;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < page.length; i++) {
         const inforPobs = {
-            ten: data[i].tenThuoc,
-            hoatChatChinh: data[i].thongTinThuocCoBan ? data[i].thongTinThuocCoBan.hoatChatChinh : null,
-            SDK: data[i].soDangKy,
-            SQD: data[i].thongTinDangKyThuoc ? data[i].thongTinDangKyThuoc.soQuyetDinh : null,
-            xuatSu: data[i].congTySanXuat ? data[i].congTySanXuat.nuocSanXuat : null,
-            congTy: data[i].congTySanXuat ? data[i].congTySanXuat.tenCongTySanXuat : null,
-            dangBaoChe: data[i].thongTinDangKyThuoc ? data[i].thongTinDangKyThuoc.dangBaoChe : null,
-            diaChiSX: data[i].congTySanXuat ? data[i].congTySanXuat.diaChiSanXuat : null,
+            ten: page[i].tenThuoc,
+            hoatChatChinh: page[i].thongTinThuocCoBan ? page[i].thongTinThuocCoBan.hoatChatChinh : null,
+            SDK: page[i].soDangKy,
+            SQD: page[i].thongTinDangKyThuoc ? page[i].thongTinDangKyThuoc.soQuyetDinh : null,
+            xuatSu: page[i].congTySanXuat ? page[i].congTySanXuat.nuocSanXuat : null,
+            congTy: page[i].congTySanXuat ? page[i].congTySanXuat.tenCongTySanXuat : null,
+            // thongTinDangKyThuoc.dangBaoChe is empty in all 39,880 records; the
+            // dosage form lives on thongTinThuocCoBan, populated in 84% of them.
+            dangBaoChe: page[i].thongTinThuocCoBan ? page[i].thongTinThuocCoBan.dangBaoChe : null,
+            diaChiSX: page[i].congTySanXuat ? page[i].congTySanXuat.diaChiSanXuat : null,
         };
         result.push(inforPobs);
     }
@@ -37,7 +56,9 @@ const getDrugWithName = (req, res) => {
         .status(200)
         .json({
             status: "success",
-            data: { result }
+            // The match count before slicing. Without it a client cannot tell
+            // "these are all of them" from "these are the first few".
+            data: { result, total: data.length }
         })
 }
 
@@ -107,7 +128,7 @@ const handleScan = async (req, res) => {
                     SQD: jsonArray.results[i].thongTinDangKyThuoc ? jsonArray.results[i].thongTinDangKyThuoc.soQuyetDinh : null,
                     xuatSu: jsonArray.results[i].congTySanXuat ? jsonArray.results[i].congTySanXuat.nuocSanXuat : null,
                     congTy: jsonArray.results[i].congTySanXuat ? jsonArray.results[i].congTySanXuat.tenCongTySanXuat : null,
-                    dangBaoChe: jsonArray.results[i].thongTinDangKyThuoc ? jsonArray.results[i].thongTinDangKyThuoc.dangBaoChe : null,
+                    dangBaoChe: jsonArray.results[i].thongTinThuocCoBan ? jsonArray.results[i].thongTinThuocCoBan.dangBaoChe : null,
                     diaChiSX: jsonArray.results[i].congTySanXuat ? jsonArray.results[i].congTySanXuat.diaChiSanXuat : null,
                 };
                 result.push(inforPobs);
